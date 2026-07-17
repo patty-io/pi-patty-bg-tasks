@@ -18,7 +18,7 @@ import {
     requestJobDecision, requireExistingCwd, SLEEP_WAIT_GUIDANCE, startBackgroundJob,
     terminateJobSilently,
 } from "../lifecycle.ts";
-import { textBlock } from "../format.ts";
+import { textBlock, backgroundReminder } from "../format.ts";
 
 type BashBgCtx = UiContext & { cwd: string };
 
@@ -90,7 +90,8 @@ export function registerBashBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): v
             return {
                 content: [textBlock(
                     `Command running in background with ID: ${id}.` +
-                    `${p.name ? ` Name: ${p.name}.` : ""} Output is being written to: ${logPath}`
+                    `${p.name ? ` Name: ${p.name}.` : ""} Output is being written to: ${logPath}` +
+                    backgroundReminder(reg.nonInteractive)
                 )],
                 details: undefined,
             };

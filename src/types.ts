@@ -51,11 +51,13 @@ export const PREVIEW_CHARS = {
 export type JobStatus = "running" | "completed" | "failed" | "killed";
 
 /** What kind of background job this is. "shell" is the default (bash/bash_bg/
- *  agent_bg); "monitor" is a streaming-event watch (the monitor tool). */
+ *  bash_bg); "monitor" is a streaming-event watch (the monitor tool). */
 export type JobKind = "shell" | "monitor";
 
 export interface Job {
     id: string;
+    /** Pi session identity that owns this background job. */
+    sessionId?: string;
     name?: string;
     command: string;
     pid: number;
@@ -106,6 +108,28 @@ export const EVENT = {
     jobFinished: "job-finished",
     monitorEvent: "bg-monitor-event",
 } as const;
+
+/**
+ * pi.events bus channel emitted the instant a background job reaches a terminal
+ * state (completeJob), independent of the coalesced turn-boundary user notice.
+ * Other extensions (e.g. a `wait` tool) can subscribe to react in real time to
+ * a background bash/agent job finishing. Payload: BgTaskFinishedEvent.
+ */
+export const BG_TASK_FINISHED_EVENT = "patty:bg-task-finished";
+
+/** Payload emitted on BG_TASK_FINISHED_EVENT. */
+export interface BgTaskFinishedEvent {
+    jobId: string;
+    name?: string;
+    command: string;
+    status: JobStatus;
+    exitCode?: number;
+    pid: number;
+    kind: JobKind;
+    logPath: string;
+    startTime: number;
+    endedAt: number;
+}
 
 export type EventName = (typeof EVENT)[keyof typeof EVENT];
 

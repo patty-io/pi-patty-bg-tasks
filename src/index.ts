@@ -1,12 +1,11 @@
 /**
  * pi-patty-bg-tasks — background task extension for the pi agent.
  *
- * Registers six tools:
+ * Registers five tools:
  *   - bash (override)
  *   - bash_bg
  *   - jobs
  *   - job_decide
- *   - agent_bg
  *   - monitor (streaming-event watch)
  *
  * Also registers keyboard shortcuts and slash commands.
@@ -17,11 +16,14 @@ import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
 import { BackgroundRegistry } from "./state.ts";
 import {
     cleanupStaleRuntimeArtifacts,
-    detectNonInteractive,
+    resolveNonInteractive,
     reviveAndValidate,
     terminateJobSilently,
 } from "./lifecycle.ts";
 import { forget as forgetJob, stopSidebarTicker } from "./registry.ts";
+import { markLive } from "./shared-live.ts";
+import { registerWaitProvider } from "./wait-provider.ts";
+import { drainRunningJobs } from "./drain.ts";
 import { cancelPendingNotices, noteAgentEnd, noteAgentStart } from "./notify.ts";
 import {
     EVENT,
@@ -33,7 +35,6 @@ import { registerBashTool } from "./tools/bash.ts";
 import { registerBashBgTool } from "./tools/bash-bg.ts";
 import { registerJobsTool } from "./tools/jobs.ts";
 import { registerJobDecideTool } from "./tools/job-decide.ts";
-import { registerAgentBgTool } from "./tools/agent-bg.ts";
 import { registerMonitorTool } from "./tools/monitor.ts";
 import { registerShortcuts } from "./shortcuts.ts";
 import { registerCommands } from "./commands.ts";
@@ -43,6 +44,15 @@ interface PersistedState {
     schemaVersion?: number;
     jobs?: Array<[string, Omit<Job, "proc" | "donePromise" | "resolveDone">]>;
     jobCounter?: number;
+}
+
+interface SessionIdentityManager {
+    getSessionFile?: () => string | null | undefined;
+    getSessionId?: () => string | null | undefined;
+}
+
+function resolveCurrentSessionId(sessionManager: SessionIdentityManager): string | undefined {
+    return sessionManager.getSessionFile?.() ?? sessionManager.getSessionId?.() ?? undefined;
 }
 
 /** Extension entry point. */
@@ -58,13 +68,17 @@ export default function (pi: ExtensionAPI): void {
     registerBashBgTool(pi, reg);
     registerJobsTool(pi, reg);
     registerJobDecideTool(pi, reg);
-    registerAgentBgTool(pi, reg);
     registerMonitorTool(pi, reg);
 
     // ── Shortcuts / commands ──────────────────────────────────────
     registerShortcuts(pi, reg);
     registerCommands(pi, reg);
     registerInputHandlers(pi, reg);
+
+    // ── wait integration ──────────────────────────────────────────
+    // Publish patty as a background-work provider so a `wait` tool blocks on our
+    // backgrounded bash/agent jobs (dependency-free; see wait-provider.ts).
+    registerWaitProvider(reg);
 
     // ── Turn boundaries ───────────────────────────────────────────
     // Hold background notices while the agent is mid-turn and flush them as ONE
@@ -75,13 +89,25 @@ export default function (pi: ExtensionAPI): void {
     });
     pi.on("agent_end", async (_event, ctx) => {
         noteAgentEnd(reg, pi, ctx as unknown as UiContext);
+        // Non-interactive turn-end drain: in a headless run there is no next turn
+        // to surface a job's completion, and session_shutdown would kill any
+        // still-running job. Block turn-end until outstanding jobs finish so work
+        // the model started but didn't wait for is not discarded.
+        if (reg.nonInteractive) await drainRunningJobs(reg);
     });
 
     // ── Session start ─────────────────────────────────────────────
     pi.on("session_start", async (_event, ctx) => {
-        reg.nonInteractive = detectNonInteractive(
+        reg.currentSessionId = resolveCurrentSessionId(ctx.sessionManager as SessionIdentityManager);
+
+        // Use Pi's authoritative UI signal as the source of truth (see
+        // resolveNonInteractive): non-interactive exactly when there is no TUI.
+        // Matches pi-subagents' ctx.hasUI gate and covers entry paths argv
+        // sniffing misses (`pi --stream` piped, `--print=true`, aliases).
+        reg.nonInteractive = resolveNonInteractive(
+            (ctx as { hasUI?: boolean }).hasUI,
             process.argv,
-            Boolean(process.stdin.isTTY)
+            Boolean(process.stdin.isTTY),
         );
 
         // Restore serialized background job state.
@@ -104,12 +130,16 @@ export default function (pi: ExtensionAPI): void {
         if (latest) {
             if (latest.jobs) {
                 for (const [id, job] of latest.jobs) {
+                    job.sessionId ??= reg.currentSessionId;
                     reviveAndValidate(reg, job);
                     if (job.status !== "running") {
                         // Not alive — fold into the counter and drop from the map.
                         forgetJob(reg, job);
                     } else {
                         reg.jobs.set(id, job);
+                        // Keep the cross-extension live set consistent after a
+                        // same-process reload that revived a still-running job.
+                        markLive(id);
                     }
                 }
             }

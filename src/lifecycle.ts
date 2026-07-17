@@ -11,6 +11,7 @@ import { readdir, stat, unlink } from "node:fs/promises";
 import { join as pathJoin } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+    BG_TASK_FINISHED_EVENT,
     DELIVER_FOLLOWUP,
     EVENT,
     MAX_CONCURRENT_JOBS,
@@ -20,6 +21,7 @@ import {
 } from "./types.ts";
 import type { BackgroundRegistry } from "./state.ts";
 import { killProcessTree, processExists } from "./spawn.ts";
+import { clearLive } from "./shared-live.ts";
 import { LOG_DIR, atConcurrencyLimit, forget, renderSidebar } from "./registry.ts";
 import { watchStalls } from "./monitoring.ts";
 import { enqueueFinished } from "./notify.ts";
@@ -41,7 +43,7 @@ export function assertJobSlot(reg: BackgroundRegistry): void {
  * Wire a background job's lifecycle: completion promise, abort controller,
  * stall watcher, and the exit→completeJob hand-off. The job must already be in
  * the registry. Returns the job's AbortController so callers can attach extra
- * monitors (e.g. agent_bg's progress poller).
+ * monitors (e.g. a job's progress poller).
  */
 export function startBackgroundJob(args: {
     reg: BackgroundRegistry;
@@ -90,7 +92,7 @@ export function startBackgroundJob(args: {
 /**
  * Standard completion flow after a job exits — abortJob → markTerminal →
  * notifyFinished → forget → renderSidebar. Shared by every tool's exit
- * callback (bash, bash_bg, agent_bg) as the canonical termination protocol.
+ * callback (bash, bash_bg) as the canonical termination protocol.
  */
 export function completeJob(args: {
     job: Job;
@@ -106,6 +108,27 @@ export function completeJob(args: {
     const finished = args.job;
     abortJob(args.reg, finished.id);
     markTerminal(finished, statusFromExit(args.code), args.code ?? undefined);
+    // Emit a real-time bus event the instant the job is terminal (mid-turn, from
+    // the child's exit callback) — separate from the coalesced turn-boundary user
+    // notice. Lets other extensions (e.g. a `wait` tool) react immediately to a
+    // background job finishing. Best-effort: never let a subscriber throw break
+    // the termination protocol.
+    try {
+        args.pi.events.emit(BG_TASK_FINISHED_EVENT, {
+            jobId: finished.id,
+            name: finished.name,
+            command: finished.command,
+            status: finished.status,
+            exitCode: finished.exitCode,
+            pid: finished.pid,
+            kind: finished.kind ?? "shell",
+            logPath: finished.logPath,
+            startTime: finished.startTime,
+            endedAt: finished.endedAt ?? Date.now(),
+        });
+    } catch {
+        /* a bad subscriber must not break job completion */
+    }
     if (args.shouldNotify !== false) {
         notifyFinished({ job: finished, reg: args.reg, pi: args.pi, ctx: args.ctx });
     }
@@ -132,6 +155,10 @@ export function markTerminal(
     job.status = status;
     job.exitCode = exitCode;
     delete job.proc;
+    // Drop from the cross-extension live-jobs set (see shared-live.ts). Single
+    // choke point for every terminal transition (complete/fail/kill), so a
+    // `wait` tool reading the set never sees a stale in-flight job.
+    clearLive(job.id);
     if (job.resolveDone) {
         job.resolveDone();
         delete job.resolveDone;
@@ -508,6 +535,26 @@ export function detectNonInteractive(
 ): boolean {
     if (!stdinIsTTY) return true;
     return argv.includes("-p") || argv.includes("--print");
+}
+
+/**
+ * Resolve whether the current run is non-interactive, preferring Pi's
+ * authoritative UI signal (`ctx.hasUI`) over argv/TTY sniffing.
+ *
+ * A run is non-interactive exactly when there is no TUI — print/json mode, or a
+ * non-TTY stdin pipe. `ctx.hasUI` reflects that directly and is the same signal
+ * pi-subagents gates on, so both extensions agree on one definition. It also
+ * covers entry paths a bare `-p`/`--print` argv check misses (e.g. `pi --stream`
+ * piped from stdin, `--print=true`, or aliases). Falls back to argv/TTY
+ * detection only when `hasUI` is unavailable on the context.
+ */
+export function resolveNonInteractive(
+    hasUI: boolean | undefined,
+    argv: readonly string[],
+    stdinIsTTY: boolean
+): boolean {
+    if (typeof hasUI === "boolean") return !hasUI;
+    return detectNonInteractive(argv, stdinIsTTY);
 }
 
 // --- Cleanup -------------------------------------------------------------

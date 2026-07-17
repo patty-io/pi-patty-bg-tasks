@@ -7,6 +7,11 @@ export interface SpawnResult {
     pid: number;
     logPath: string;
     exit: Promise<number | null>;
+    /** Re-detach the child from the event loop. Used when a foreground command
+     *  (spawned with keepRef:true so its `close` fires in -p mode) is promoted
+     *  to a background job: once backgrounded it must be able to outlive the
+     *  turn, so it should no longer hold the loop open. Idempotent. */
+    unref: () => void;
 }
 
 /**
@@ -15,7 +20,7 @@ export interface SpawnResult {
  * data path. Progress is read back by polling the file tail separately.
  *
  * Pass `command` to run `bash -c <command>`, or `file`/`fileArgs` to exec a
- * binary directly (e.g. agent_bg launching `pi -p`). The child is detached so
+ * binary directly (e.g. a helper launching a binary directly). The child is detached so
  * the whole process group can be signalled.
  */
 export function spawnWithFileOutput(args: {
@@ -29,6 +34,11 @@ export function spawnWithFileOutput(args: {
      *  separately (readable, but never emitted as an event). */
     errPath?: string;
     signal?: AbortSignal;
+    /** Keep the child ref'd so it holds the event loop alive until it exits.
+     *  Foreground commands need this so their `close` event is delivered in
+     *  non-interactive (-p) mode where no TUI keeps the loop alive. Detached
+     *  background jobs must stay unref'd so they can outlive the turn. */
+    keepRef?: boolean;
 }): SpawnResult {
     mkdirSync(dirname(args.logPath), { recursive: true });
     const outFd = openSync(args.logPath, "w");
@@ -83,9 +93,9 @@ export function spawnWithFileOutput(args: {
     }
     void exit.finally(() => args.signal?.removeEventListener("abort", onAbort));
 
-    proc.unref();
+    if (!args.keepRef) proc.unref();
 
-    return { pid, logPath: args.logPath, exit };
+    return { pid, logPath: args.logPath, exit, unref: () => proc.unref() };
 }
 
 /**

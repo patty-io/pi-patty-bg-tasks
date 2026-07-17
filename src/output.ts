@@ -119,7 +119,7 @@ export type ToolTextUpdate = (update: {
 
 /**
  * Stream a log file's live tail into a tool's onUpdate callback — the shared
- * "show live output while a job runs" mechanic used by bash, agent_bg, and the
+ * "show live output while a job runs" mechanic used by bash, bash_bg, and the
  * jobs attach action. Returns the poller's stop handle.
  */
 export function streamLog(

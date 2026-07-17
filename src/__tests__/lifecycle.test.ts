@@ -8,6 +8,7 @@ import { killProcessTree, processExists } from "../proc.ts";
 import {
     abortJob,
     backgroundActiveForeground,
+    completeJob,
     createJobAbort,
     ensureCompletionPromise,
     isSignalExit,
@@ -17,7 +18,7 @@ import {
     statusFromExit,
 } from "../lifecycle.ts";
 import { BackgroundRegistry } from "../state.ts";
-import { EVENT, type Job, type UiContext } from "../types.ts";
+import { BG_TASK_FINISHED_EVENT, EVENT, type Job, type UiContext, type BgTaskFinishedEvent } from "../types.ts";
 
 void describe("processExists", () => {
     void it("the current process is alive", () => {
@@ -236,3 +237,57 @@ function makeCtx(notifications: string[] = []): UiContext {
         },
     };
 }
+
+// Minimal pi stub exposing just the event bus completeJob touches.
+function makeEventCapturingPi() {
+    const emitted: Array<{ channel: string; data: unknown }> = [];
+    const pi = {
+        events: {
+            emit(channel: string, data: unknown) { emitted.push({ channel, data }); },
+            on() { return () => {}; },
+        },
+        // notifyFinished only reads pi.sendMessage; stub it as a no-op.
+        sendMessage() {},
+    };
+    return { pi, emitted };
+}
+
+void describe("completeJob emits BG_TASK_FINISHED_EVENT", () => {
+    void it("emits the terminal event on the bus with job details", () => {
+        const reg = new BackgroundRegistry();
+        const { pi, emitted } = makeEventCapturingPi();
+        const job = makeJob({ id: "job-e-1", command: "echo hi", pid: 4242, kind: "shell", logPath: "/tmp/pi-bg/job-e-1.log", startTime: 1000 });
+        reg.jobs.set(job.id, job);
+        completeJob({ job, code: 0, reg, pi: pi as never, ctx: makeCtx() as never, shouldNotify: false });
+        const ev = emitted.find((e) => e.channel === BG_TASK_FINISHED_EVENT);
+        assert.ok(ev, "should emit BG_TASK_FINISHED_EVENT");
+        const d = ev!.data as BgTaskFinishedEvent;
+        assert.equal(d.jobId, "job-e-1");
+        assert.equal(d.status, "completed");
+        assert.equal(d.exitCode, 0);
+        assert.equal(d.pid, 4242);
+        assert.equal(d.kind, "shell");
+        assert.equal(d.command, "echo hi");
+    });
+
+    void it("reports failed status + exit code for a non-zero exit", () => {
+        const reg = new BackgroundRegistry();
+        const { pi, emitted } = makeEventCapturingPi();
+        const job = makeJob({ id: "job-e-2", pid: 7, logPath: "/tmp/pi-bg/job-e-2.log" });
+        reg.jobs.set(job.id, job);
+        completeJob({ job, code: 3, reg, pi: pi as never, ctx: makeCtx() as never, shouldNotify: false });
+        const ev = emitted.find((e) => e.channel === BG_TASK_FINISHED_EVENT);
+        const d = ev!.data as BgTaskFinishedEvent;
+        assert.equal(d.status, "failed");
+        assert.equal(d.exitCode, 3);
+    });
+
+    void it("does not emit for an already-terminal job (idempotent)", () => {
+        const reg = new BackgroundRegistry();
+        const { pi, emitted } = makeEventCapturingPi();
+        const job = makeJob({ id: "job-e-3", status: "completed" });
+        reg.jobs.set(job.id, job);
+        completeJob({ job, code: 0, reg, pi: pi as never, ctx: makeCtx() as never, shouldNotify: false });
+        assert.equal(emitted.filter((e) => e.channel === BG_TASK_FINISHED_EVENT).length, 0);
+    });
+});

@@ -17,6 +17,7 @@ import {
     type UiContext,
 } from "./types.ts";
 import type { BackgroundRegistry } from "./state.ts";
+import { markLive } from "./shared-live.ts";
 import { readBoundedTail, readLastLine } from "./output.ts";
 
 // --- ID generation -------------------------------------------------------
@@ -42,7 +43,7 @@ export function errPathFor(jobId: string): string {
 /**
  * Build a fresh running Job. Centralizes the Job shape so the new `kind`/`stop`
  * fields (and any future additions) don't drift across the bash/bash_bg/
- * agent_bg/monitor construction sites.
+ * bash_bg/monitor construction sites.
  */
 export function createRunningJob(args: {
     id: string;
@@ -77,8 +78,12 @@ export function markStarted(reg: BackgroundRegistry): void {
 
 /** Add a brand-new running job and count it as started. */
 export function add(reg: BackgroundRegistry, job: Job): Job {
+    if (!job.sessionId && reg.currentSessionId) {
+        job.sessionId = reg.currentSessionId;
+    }
     reg.jobs.set(job.id, job);
     markStarted(reg);
+    if (job.status === "running") markLive(job.id);
     return job;
 }
 

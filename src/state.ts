@@ -8,6 +8,7 @@ import type { Job, ForegroundSlot, MonitorEnd } from "./types.ts";
 
 export class BackgroundRegistry {
     jobs = new Map<string, Job>();
+    currentSessionId: string | undefined;
     foreground = new Map<string, ForegroundSlot>();
     counter = 0;
     activeToolCallId: string | null = null;

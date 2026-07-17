@@ -57,9 +57,6 @@ jobs({ action: "list" })
 
 # Grep across every job's output at once
 jobs({ action: "search", pattern: "error|warning" })
-
-# Hand off a whole task to a background agent
-agent_bg({ prompt: "Refactor the auth module" })
 ```
 
 Hit **Ctrl+B** whenever a command is running to background it on the spot — a dim `(ctrl+b to run in background)` hint appears under your input once the command has been going a couple of seconds. The agent gets notified and is back to work before you've let go of the keys.
@@ -109,15 +106,6 @@ The agent's answer to an auto-backgrounded command. This prompt lands the moment
 |-----------|-------------|
 | `jobId` | The backgrounded job's ID |
 | `decision` | `keep` (let it run), `kill` (terminate), or `check` (inspect output first) |
-
-### agent_bg
-
-Clone yourself a coworker. Spawns a detached `pi -p` process with a continuity prompt derived from the current session, then streams its progress back to you live.
-
-| Parameter | Description |
-|-----------|-------------|
-| `prompt` | Task description for the background agent |
-| `cwd` | Working directory (default: current) |
 
 ### monitor
 
@@ -262,7 +250,6 @@ The big one. The background engine was rewritten from the ground up to match Cla
 
 **Highlights**
 - New `run_in_background: true` parameter on the `bash` tool.
-- `agent_bg` now streams progress live and resolves the `pi` binary path (so it works even outside standard `$PATH` installs).
 - Cooperative steering delivers your message as a follow-up turn — no polling loop.
 - Concurrency cap of 16 simultaneous background jobs.
 - Code and UI are English-only.

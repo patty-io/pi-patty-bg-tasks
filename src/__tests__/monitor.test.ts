@@ -126,6 +126,7 @@ void describe("monitor — split spawn output", () => {
             cwd: process.cwd(),
             logPath,
             errPath,
+            keepRef: true,
         });
         await r.exit;
         assert.match(readFileSync(logPath, "utf-8"), /OUT/);

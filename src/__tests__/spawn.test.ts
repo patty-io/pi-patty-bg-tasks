@@ -19,6 +19,7 @@ describe("spawnWithFileOutput", () => {
             command: 'echo "hello world"',
             cwd: process.cwd(),
             logPath,
+            keepRef: true,
         });
         assert.ok(result.pid > 0);
         const code = await result.exit;
@@ -36,6 +37,7 @@ describe("spawnWithFileOutput", () => {
             command: 'echo "err msg" >&2',
             cwd: process.cwd(),
             logPath,
+            keepRef: true,
         });
         const code = await result.exit;
         assert.equal(code, 0);
@@ -52,6 +54,7 @@ describe("spawnWithFileOutput", () => {
             command: "exit 42",
             cwd: process.cwd(),
             logPath,
+            keepRef: true,
         });
         const code = await result.exit;
         assert.equal(code, 42);
@@ -68,6 +71,7 @@ describe("spawnWithFileOutput", () => {
             cwd: process.cwd(),
             logPath,
             signal: ac.signal,
+            keepRef: true,
         });
         // Give process time to start
         await new Promise((r) => setTimeout(r, 200));
@@ -88,6 +92,7 @@ describe("killProcessTree", () => {
             command: "sleep 60",
             cwd: process.cwd(),
             logPath,
+            keepRef: true,
         });
         await new Promise((r) => setTimeout(r, 200));
         assert.ok(processExists(result.pid));

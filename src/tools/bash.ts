@@ -48,7 +48,7 @@ import {
     requireExistingCwd,
     startBackgroundJob,
 } from "../lifecycle.ts";
-import { textBlock } from "../format.ts";
+import { textBlock, backgroundReminder } from "../format.ts";
 import { bashParamSchema } from "./bash-params.ts";
 
 /** UI context + cwd is all this tool needs from the host context. */
@@ -151,6 +151,7 @@ async function runForeground(args: {
         command,
         cwd: ctx.cwd,
         logPath,
+        keepRef: true,
     });
 
     // Register the foreground slot so Ctrl+Shift+B can find this command.
@@ -209,15 +210,25 @@ async function runForeground(args: {
         if (reg.activeToolCallId === toolCallId) reg.activeToolCallId = null;
         job.isBackgrounded = true;
         markStarted(reg);
+        // The foreground child was spawned ref'd (keepRef) so its `close` event
+        // is delivered in -p mode. Now that it's a background job it must be
+        // able to outlive the turn, so re-detach it from the event loop.
+        spawned.unref();
         startBackgroundJob({ reg, pi, ctx, job, exit: spawned.exit });
-        if (reason === "timeout") {
+        // The interactive keep/kill prompt only makes sense with a user at the
+        // keyboard. In non-interactive (-p) mode the agent steers via the
+        // jobs/wait/monitor tools instead, so skip the prompt there.
+        if (reason === "timeout" && !reg.nonInteractive) {
             requestJobDecision({ reg, pi, ctx, job, timeoutMs });
         }
     };
 
-    // Timeout timer.
+    // Timeout timer. Auto-backgrounds a long-running foreground command in both
+    // interactive and non-interactive modes. In -p mode the backgrounded job is
+    // picked up by the agent via the jobs/wait/monitor tools (wait blocks on
+    // pi-patty-bg-tasks' live-job set), so the turn can continue instead of
+    // stalling on a slow command.
     const timeoutTimer = setTimeout(() => {
-        if (reg.nonInteractive) return;
         if (!reg.foreground.has(toolCallId)) return;
         if (!isAutoBackgroundAllowed(command)) {
             killProcessTree(spawned.pid, "SIGTERM");
@@ -225,7 +236,8 @@ async function runForeground(args: {
         }
         requestPause("timeout");
     }, timeoutMs);
-    (timeoutTimer as NodeJS.Timeout).unref();
+    // NOT unref'd: in -p mode this timer is what allows a slow command to reach
+    // its auto-background point; unref'ing it would let the loop drain first.
 
     let progressPoller: { stop: () => void } | undefined;
     let hintShown = false;
@@ -254,7 +266,7 @@ async function runForeground(args: {
             spawned.exit.then((c) => ({ code: c })),
             new Promise<null>((r) => {
                 const t = setTimeout(() => r(null), QUICK_COMPLETION_MS);
-                t.unref();
+                // Not unref'd: in -p mode this timer must keep the loop alive.
             }),
         ]);
 
@@ -283,12 +295,13 @@ async function runForeground(args: {
                 race.reason === "timeout"
                     ? ` (auto-backgrounded after ${Math.round(timeoutMs / 1000)}s; still running — check with jobs output if needed)`
                     : "";
-            return {
-                content: [
-                    textBlock(
-                        `Process backgrounded as ${id}${reason}\nCommand: ${command}\nPID: ${spawned.pid}\nOutput: ${logPath}`
-                    ),
-                ],
+	            return {
+	                content: [
+	                    textBlock(
+	                        `Process backgrounded as ${id}${reason}\nCommand: ${command}\nPID: ${spawned.pid}\nOutput: ${logPath}` +
+	                        backgroundReminder(reg.nonInteractive)
+	                    ),
+	                ],
                 details: undefined,
             };
         }
@@ -344,7 +357,8 @@ function spawnBackground(args: {
             textBlock(
                 `Command running in background with ID: ${id}.${
                     args.name ? ` Name: ${args.name}.` : ""
-                } Output is being written to: ${logPath}`
+                } Output is being written to: ${logPath}` +
+                backgroundReminder(args.reg.nonInteractive)
             ),
         ],
         details: undefined,
