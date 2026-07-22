@@ -76,6 +76,9 @@ The built-in bash tool, with a survival instinct. Commands run normally — but 
 | `timeout` | Custom timeout in seconds (default: 120) |
 | `run_in_background` | Start the command in the background immediately, skipping the foreground run and the auto-background timer |
 
+
+> **Coexistence with `pi-tool-display`:** both packages register a tool named `bash`. Pi reports a hard conflict if both claim it. Prefer this package for bash behavior (backgrounding / jobs). In `~/.pi/agent/extensions/pi-tool-display/config.json` set `"registerToolOverrides": { "bash": false }`. Upstream fix for automatic yielding: [MasuRii/pi-tool-display#34](https://github.com/MasuRii/pi-tool-display/pull/34) / [#35](https://github.com/MasuRii/pi-tool-display/issues/35).
+
 ### bash_bg
 
 When you already know it's a long one. Starts a command in the background immediately — no foreground race, no timeout to wait out.
