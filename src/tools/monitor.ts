@@ -122,6 +122,7 @@ export function registerMonitorTool(pi: ExtensionAPI, reg: BackgroundRegistry): 
                       cwd: mctx.cwd,
                       logPath,
                       errPath: errPathFor(id),
+                      projectTrusted: mctx.isProjectTrusted?.() ?? false,
                   });
 
             const job = createRunningJob({

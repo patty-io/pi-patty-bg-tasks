@@ -7,6 +7,15 @@ import type { Job } from "../types.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+async function waitUntil(predicate: () => boolean, timeoutMs = 5_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (predicate()) return true;
+        await sleep(50);
+    }
+    return predicate();
+}
+
 interface ToolDef {
     execute: (
         toolCallId: string,
@@ -43,7 +52,16 @@ void describe("bash foreground — Claude Code parity on turn abort", () => {
     void it("a genuine cancel (Esc) KILLS the foreground command", async () => {
         const { tool, reg, ctx } = harness();
         const ac = new AbortController();
-        void tool.execute("t1", { command: "tail -f /dev/null" }, ac.signal, undefined, ctx);
+        const execution = tool.execute(
+            "t1",
+            { command: 'node -e "setInterval(() => {}, 1000)"' },
+            ac.signal,
+            undefined,
+            ctx
+        );
+        // Windows taskkill reports a different exit code than POSIX signals;
+        // cancellation is asserted through process liveness below.
+        void execution.catch(() => {});
         await sleep(400);
 
         const job = [...reg.jobs.values()][0] as Job;
@@ -53,15 +71,23 @@ void describe("bash foreground — Claude Code parity on turn abort", () => {
 
         // No pause was requested → this is a deliberate cancel → CC kills it.
         ac.abort();
-        await sleep(200);
 
-        assert.ok(!processExists(pid), "process is killed on a genuine cancel (CC parity)");
+        assert.ok(
+            await waitUntil(() => !processExists(pid)),
+            "process is killed on a genuine cancel (CC parity)"
+        );
     });
 
     void it("a backgrounding pause (steering / Ctrl+B) SURVIVES the abort", async () => {
         const { tool, reg, ctx } = harness();
         const ac = new AbortController();
-        void tool.execute("t2", { command: "tail -f /dev/null" }, ac.signal, undefined, ctx);
+        void tool.execute(
+            "t2",
+            { command: 'node -e "setInterval(() => {}, 1000)"' },
+            ac.signal,
+            undefined,
+            ctx
+        );
         await sleep(400);
 
         const job = [...reg.jobs.values()][0] as Job;
@@ -77,9 +103,12 @@ void describe("bash foreground — Claude Code parity on turn abort", () => {
         assert.ok(processExists(pid), "backgrounded command survives the abort");
     });
 
-    after(() => {
+    after(async () => {
         for (const pid of spawnedPids) {
             try { killProcessTree(pid, "SIGKILL"); } catch { /* already gone */ }
         }
+        await Promise.all(
+            spawnedPids.map((pid) => waitUntil(() => !processExists(pid)))
+        );
     });
 });

@@ -59,7 +59,10 @@ export function registerBashBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): v
             const id = nextJobId(reg);
             const logPath = logPathFor(id);
             const spawned = spawnWithFileOutput({
-                command: p.command, cwd: ctx2.cwd, logPath,
+                command: p.command,
+                cwd: ctx2.cwd,
+                logPath,
+                projectTrusted: ctx2.isProjectTrusted?.() ?? false,
             });
 
             const job = createRunningJob({

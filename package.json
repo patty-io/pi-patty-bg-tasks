@@ -34,7 +34,7 @@
         "access": "public"
     },
     "scripts": {
-        "test": "node --experimental-strip-types --test --test-force-exit 'src/__tests__/*.test.ts'",
+        "test": "node --experimental-strip-types --test --test-force-exit src/__tests__/*.test.ts",
         "check": "tsc --noEmit"
     },
     "peerDependencies": {

@@ -15,6 +15,15 @@ const dir = join(tmpdir(), `pi-bg-monitor-${process.pid}`);
 mkdirSync(dir, { recursive: true });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+async function waitUntil(predicate: () => boolean, timeoutMs = 5_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (predicate()) return true;
+        await sleep(25);
+    }
+    return predicate();
+}
+
 interface CapturedTool {
     execute: (
         toolCallId: string,
@@ -88,14 +97,21 @@ void describe("monitor tool — command lifecycle", () => {
         const { tool, ctx, messages, reg, pi } = makeHarness();
         const res = await tool.execute(
             "t4",
-            { command: "printf 'line-A\\nline-B\\n'", description: "test stream" },
+            {
+                command:
+                    'node -e "console.log(\'line-A\'); setTimeout(() => console.log(\'line-B\'), 100)"',
+                description: "test stream",
+            },
             undefined,
             undefined,
             ctx
         );
         assert.match(res.content[0].text, /Monitor job-.* started/);
 
-        await sleep(300); // let the source exit + terminal enqueue
+        assert.ok(
+            await waitUntil(() => reg.jobs.size === 0),
+            "monitor source should reach a terminal state"
+        );
         flushTurnBoundaryNotices(reg, pi as never, ctx as never); // force the coalesced flush
 
         // Stream lines are delivered live as monitor events.
@@ -122,7 +138,7 @@ void describe("monitor — split spawn output", () => {
         const logPath = join(dir, "split.log");
         const errPath = join(dir, "split.err");
         const r = spawnWithFileOutput({
-            command: "echo OUT; echo ERR >&2",
+            command: 'node -e "console.log(\'OUT\'); console.error(\'ERR\')"',
             cwd: process.cwd(),
             logPath,
             errPath,
