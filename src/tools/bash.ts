@@ -151,6 +151,7 @@ async function runForeground(args: {
         command,
         cwd: ctx.cwd,
         logPath,
+        projectTrusted: ctx.isProjectTrusted?.() ?? false,
     });
 
     // Register the foreground slot so Ctrl+Shift+B can find this command.
@@ -326,6 +327,7 @@ function spawnBackground(args: {
         command: args.command,
         cwd: args.cwd,
         logPath,
+        projectTrusted: args.ctx.isProjectTrusted?.() ?? false,
     });
 
     const job = createRunningJob({

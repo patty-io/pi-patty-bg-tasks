@@ -31,12 +31,14 @@ export function spawnCommandSource(args: {
     cwd: string;
     logPath: string;
     errPath: string;
+    projectTrusted?: boolean;
 }): MonitorSource {
     const spawned = spawnWithFileOutput({
         command: args.command,
         cwd: args.cwd,
         logPath: args.logPath,
         errPath: args.errPath,
+        projectTrusted: args.projectTrusted,
     });
     return {
         logPath: args.logPath,
