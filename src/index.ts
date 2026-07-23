@@ -13,7 +13,6 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
 import { BackgroundRegistry } from "./state.ts";
 import {
     cleanupStaleRuntimeArtifacts,
@@ -29,7 +28,6 @@ import {
     type Job,
     type UiContext,
 } from "./types.ts";
-import { registerBashTool } from "./tools/bash.ts";
 import { registerBashBgTool } from "./tools/bash-bg.ts";
 import { registerJobsTool } from "./tools/jobs.ts";
 import { registerJobDecideTool } from "./tools/job-decide.ts";
@@ -38,6 +36,7 @@ import { registerMonitorTool } from "./tools/monitor.ts";
 import { registerShortcuts } from "./shortcuts.ts";
 import { registerCommands } from "./commands.ts";
 import { registerInputHandlers } from "./input.ts";
+import { patchBashExecute } from "./defer-bash.ts";
 
 interface PersistedState {
     schemaVersion?: number;
@@ -50,11 +49,14 @@ export default function (pi: ExtensionAPI): void {
     const reg = new BackgroundRegistry();
 
     // ── Tool registration ─────────────────────────────────────────
-    // Use the unwrapped tool *definition* so the override inherits Pi's native
-    // bash renderCall/renderResult (createBashTool returns a wrapped AgentTool
-    // that drops them).
-    const originalBash = createBashToolDefinition(process.cwd());
-    registerBashTool(pi, reg, originalBash);
+    // NOTE: bash tool is NOT registered here to avoid init-time conflict with
+    // display extensions (pi-tool-display, etc.) that also register a tool
+    // named "bash". Instead, bash execute is patched in-place via prototype
+    // monkey-patch on ExtensionRunner (see defer-bash.ts).
+    // The patch runs when the tool registry is first built in
+    // AgentSession._buildRuntime, giving us our backgrounding-aware execute
+    // while preserving whatever renderCall/renderResult another extension provides.
+    patchBashExecute(reg, pi);
     registerBashBgTool(pi, reg);
     registerJobsTool(pi, reg);
     registerJobDecideTool(pi, reg);

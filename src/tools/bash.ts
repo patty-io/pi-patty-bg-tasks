@@ -54,7 +54,63 @@ import { bashParamSchema } from "./bash-params.ts";
 /** UI context + cwd is all this tool needs from the host context. */
 type BashCtx = UiContext & { cwd: string };
 
-/** Register the overridden `bash` tool. */
+/**
+ * Create the patty-bg-tasks custom bash execute function.
+ * This is the same logic that registerBashTool uses — extracted so it can
+ * be injected into any bash definition (built-in, tool-display, etc.)
+ * via prototype patching at init-time.
+ */
+export function createBashExecute(
+    reg: BackgroundRegistry,
+    pi: ExtensionAPI,
+): (toolCallId: string, params: Record<string, unknown>, signal: AbortSignal | undefined, onUpdate: AgentToolUpdateCallback<BashToolDetails | undefined> | undefined, ctx: { cwd: string }) => Promise<AgentToolResult<BashToolDetails | undefined>> {
+    return async function execute(toolCallId, params, signal, onUpdate, ctx) {
+        const p = params as {
+            command: string;
+            timeout?: number;
+            run_in_background?: boolean;
+            description?: string;
+        };
+        const bashCtx = ctx as BashCtx;
+
+        if (isBlankCommand(p.command)) throw new Error("Command is empty.");
+        requireExistingCwd(bashCtx.cwd);
+
+        const sleepMatch = detectBlockedSleep(p.command);
+        if (sleepMatch) {
+            throw new Error(`Blocked: ${sleepMatch}. ${SLEEP_WAIT_GUIDANCE}`);
+        }
+
+        assertJobSlot(reg);
+
+        // Explicit background mode — spawn and return immediately.
+        if (p.run_in_background) {
+            return spawnBackground({
+                toolCallId,
+                command: p.command,
+                name: p.description,
+                cwd: bashCtx.cwd,
+                reg,
+                pi,
+                ctx: bashCtx,
+            });
+        }
+
+        // Foreground mode — race completion against backgrounding.
+        return runForeground({
+            toolCallId,
+            command: p.command,
+            timeoutMs: p.timeout ? p.timeout * 1000 : DEFAULT_TIMEOUT_MS,
+            signal,
+            onUpdate,
+            ctx: bashCtx,
+            reg,
+            pi,
+        });
+    };
+}
+
+/** Register the overridden `bash` tool via pi.registerTool. */
 export function registerBashTool(
     pi: ExtensionAPI,
     reg: BackgroundRegistry,
@@ -78,50 +134,7 @@ export function registerBashTool(
         ],
         parameters: bashParamSchema,
 
-        async execute(toolCallId, params, signal, onUpdate, ctx) {
-            const p = params as {
-                command: string;
-                timeout?: number;
-                run_in_background?: boolean;
-                description?: string;
-            };
-            const bashCtx = ctx as BashCtx;
-
-            if (isBlankCommand(p.command)) throw new Error("Command is empty.");
-            requireExistingCwd(bashCtx.cwd);
-
-            const sleepMatch = detectBlockedSleep(p.command);
-            if (sleepMatch) {
-                throw new Error(`Blocked: ${sleepMatch}. ${SLEEP_WAIT_GUIDANCE}`);
-            }
-
-            assertJobSlot(reg);
-
-            // Explicit background mode — spawn and return immediately.
-            if (p.run_in_background) {
-                return spawnBackground({
-                    toolCallId,
-                    command: p.command,
-                    name: p.description,
-                    cwd: bashCtx.cwd,
-                    reg,
-                    pi,
-                    ctx: bashCtx,
-                });
-            }
-
-            // Foreground mode — race completion against backgrounding.
-            return runForeground({
-                toolCallId,
-                command: p.command,
-                timeoutMs: p.timeout ? p.timeout * 1000 : DEFAULT_TIMEOUT_MS,
-                signal,
-                onUpdate,
-                ctx: bashCtx,
-                reg,
-                pi,
-            });
-        },
+        execute: createBashExecute(reg, pi),
     });
 }
 
