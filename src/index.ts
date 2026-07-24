@@ -38,6 +38,7 @@ import { registerMonitorTool } from "./tools/monitor.ts";
 import { registerShortcuts } from "./shortcuts.ts";
 import { registerCommands } from "./commands.ts";
 import { registerInputHandlers } from "./input.ts";
+import { shouldRegisterBashOverride } from "./subagent.ts";
 
 interface PersistedState {
     schemaVersion?: number;
@@ -54,7 +55,9 @@ export default function (pi: ExtensionAPI): void {
     // bash renderCall/renderResult (createBashTool returns a wrapped AgentTool
     // that drops them).
     const originalBash = createBashToolDefinition(process.cwd());
-    registerBashTool(pi, reg, originalBash);
+    if (shouldRegisterBashOverride()) {
+        registerBashTool(pi, reg, originalBash);
+    }
     registerBashBgTool(pi, reg);
     registerJobsTool(pi, reg);
     registerJobDecideTool(pi, reg);
