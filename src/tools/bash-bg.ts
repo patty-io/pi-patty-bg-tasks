@@ -14,6 +14,7 @@ import type { BackgroundRegistry } from "../state.ts";
 import { isTerminalStatus, type UiContext } from "../types.ts";
 import { killProcessTree, spawnWithFileOutput } from "../spawn.ts";
 import { add, createRunningJob, newJobId, logPathFor } from "../registry.ts";
+import { renderBashBgCall } from "../render.ts";
 import {
     assertJobSlot, detectBlockedSleep, isAutoBackgroundAllowed, isBlankCommand,
     requireExistingCwd, SLEEP_WAIT_GUIDANCE, startBackgroundJob,
@@ -42,6 +43,7 @@ export function registerBashBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): v
             timeout: Type.Optional(Type.Number({ description: "Timeout in seconds" })),
             notify: Type.Optional(Type.Boolean({ description: "Notify on completion (default: true)" })),
         }),
+        renderCall: renderBashBgCall,
 
         async execute(toolCallId, params, _signal, _onUpdate, ctx) {
             const p = params as { command: string; name?: string; timeout?: number; notify?: boolean };
