@@ -87,6 +87,8 @@ When you already know it's a long one. Starts a command in the background immedi
 | `timeout` | Optional timeout in seconds; an overrun kills only commands that can't be auto-backgrounded (e.g. `sleep`) — anything else keeps running |
 | `notify` | Send a completion notification (default: true) |
 
+Like native `bash`, the `bash_bg` call row shows the command.
+
 ### jobs
 
 Mission control for everything running in the background: list, read output, kill, attach, search, cleanup, or pull stats.
