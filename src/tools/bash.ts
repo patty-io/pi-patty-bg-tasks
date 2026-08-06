@@ -208,9 +208,12 @@ async function runForeground(args: {
         startBackgroundJob({ reg, pi, ctx, job, exit: spawned.exit });
     };
 
-    // Timeout timer.
+    // Timeout timer. Runs in non-interactive (no-TTY / -p) sessions too:
+    // auto-backgrounding is headless-safe (job registry, log capture, and the
+    // "Process backgrounded" tool result all work without a terminal), and
+    // skipping the timer here let commands run unbounded in headless and
+    // remote front-end sessions (see #14).
     const timeoutTimer = setTimeout(() => {
-        if (reg.nonInteractive) return;
         if (!reg.foreground.has(toolCallId)) return;
         if (!isAutoBackgroundAllowed(command)) {
             // Not eligible for auto-background (e.g. `sleep`) — kill it, but
