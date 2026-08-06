@@ -106,6 +106,24 @@ void describe("bash tool — Claude Code tool-result strings", () => {
         );
     });
 
+    void it("timeout auto-background also fires in non-interactive (no-TTY) sessions", async () => {
+        const { tool, reg, ctx } = harness();
+        reg.nonInteractive = true;
+        const res = await tool.execute(
+            "t3n",
+            { command: "tail -f /dev/null", timeout: 1 },
+            undefined,
+            undefined,
+            ctx
+        );
+        const job = onlyJob(reg);
+        spawnedPids.push(job.pid);
+        assert.equal(
+            res.content[0].text,
+            `Command running in background with ID: ${job.id}. Output is being written to: ${job.logPath}`
+        );
+    });
+
     void it("timeout kill (auto-background not allowed) appends 'Command timed out after Ns' to the log", async () => {
         const { tool, ctx } = harness();
         // `sleep` is excluded from auto-backgrounding, and a float duration
