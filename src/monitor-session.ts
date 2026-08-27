@@ -55,15 +55,28 @@ export function startMonitorSession(args: {
     // (see finishMonitor), sent the moment the source ends.
     const emitEvent = (lines: string[]): void => {
         if (lines.length === 0) return;
-        pi.sendMessage(
-            {
-                customType: EVENT.monitorEvent,
-                content: `◉ ${description}\n${lines.join("\n")}`,
-                display: true,
-                details: { jobId: id, description, logPath, terminal: false },
-            },
-            DELIVER_FOLLOWUP
-        );
+        try {
+            pi.sendMessage(
+                {
+                    customType: EVENT.monitorEvent,
+                    content: `◉ ${description}\n${lines.join("\n")}`,
+                    display: true,
+                    details: { jobId: id, description, logPath, terminal: false },
+                },
+                DELIVER_FOLLOWUP
+            );
+        } catch {
+            // The captured ctx went stale (session reload/fork/switch) — the
+            // throw would otherwise escape the follower's timer tick as an
+            // uncaughtException and kill the whole process. Tear down silently:
+            // nothing on this path may touch pi or ctx again, and
+            // terminateJobSilently's notified latch keeps the exit handler off
+            // the dead ctx too.
+            terminalEmitted = true;
+            finishing = true;
+            follower.stop(false);
+            terminateJobSilently(reg, job);
+        }
     };
 
     const follower: MonitorFollower = followLines(logPath, (lines) => {
