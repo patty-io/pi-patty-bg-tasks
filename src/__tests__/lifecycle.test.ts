@@ -12,6 +12,7 @@ import {
     ensureCompletionPromise,
     markKilledSilently,
     markTerminal,
+    reapRunningJobs,
     statusFromExit,
 } from "../lifecycle.ts";
 import { BackgroundRegistry } from "../state.ts";
@@ -187,3 +188,25 @@ function makeCtx(notifications: string[] = []): UiContext {
         },
     };
 }
+
+void describe("reapRunningJobs", () => {
+    void it("terminates running jobs and leaves completed jobs", () => {
+        const reg = new BackgroundRegistry();
+        const running: Job = {
+            id: "job-1",
+            command: "sleep 999",
+            pid: 0,
+            startTime: Date.now(),
+            status: "running",
+            logPath: "/tmp/pi-bg-test.log",
+            toolCallId: "t1",
+            isBackgrounded: true,
+        };
+        const done: Job = { ...running, id: "job-2", status: "completed", pid: 0 };
+        reg.jobs.set(running.id, running);
+        reg.jobs.set(done.id, done);
+        reapRunningJobs(reg);
+        assert.equal(reg.jobs.get("job-1")?.status, "killed");
+        assert.equal(reg.jobs.get("job-2")?.status, "completed");
+    });
+});

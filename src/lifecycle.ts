@@ -399,3 +399,13 @@ export function detectNonInteractive(
     if (!stdinIsTTY) return true;
     return argv.includes("-p") || argv.includes("--print");
 }
+
+/** Kill every still-running job. Used on session shutdown and process exit so
+ *  detached children are not reparented to launchd/PID 1 and left spinning. */
+export function reapRunningJobs(reg: BackgroundRegistry): void {
+    for (const job of reg.jobs.values()) {
+        if (job.status === "running") {
+            terminateJobSilently(reg, job);
+        }
+    }
+}
