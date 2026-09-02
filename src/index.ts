@@ -14,7 +14,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
 import { BackgroundRegistry } from "./state.ts";
-import { detectNonInteractive, terminateJobSilently } from "./lifecycle.ts";
+import { detectNonInteractive, reapRunningJobs } from "./lifecycle.ts";
 import { stopSidebarTicker } from "./registry.ts";
 import { EVENT } from "./types.ts";
 import { registerBashTool } from "./tools/bash.ts";
@@ -91,11 +91,18 @@ export default function (pi: ExtensionAPI): void {
         // Claude Code's gracefulShutdown: kill ALL running tasks on ANY
         // shutdown reason, so no orphans outlive the session. The silent-kill
         // path latches `notified`, so no <task-notification> fires on the way
-        // out. Log files are left for the OS to clean.
-        for (const job of reg.jobs.values()) {
-            if (job.status === "running") {
-                terminateJobSilently(reg, job);
-            }
-        }
+        // out. Log files are left for the OS to clean. Also covers detached
+        // children (spawn.ts unref) that would otherwise survive a non-quit
+        // parent exit and burn CPU under launchd/PID 1.
+        reapRunningJobs(reg);
     });
+
+    const reapOnExit = () => reapRunningJobs(reg);
+    process.on("exit", reapOnExit);
+    for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+        process.on(sig, () => {
+            reapOnExit();
+            process.exit(sig === "SIGINT" ? 130 : 143);
+        });
+    }
 }
