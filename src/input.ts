@@ -19,15 +19,18 @@ export function registerInputHandlers(pi: ExtensionAPI, reg: BackgroundRegistry)
         const bg = backgroundActiveForeground(reg, ctx as UiContext);
         if (!bg) return { action: "continue" };
 
-        // Abort the current turn so the bash tool returns the "backgrounded" result.
-        ctx.abort?.();
+        // No abort. pauseActiveForeground() has already asked the slot to pause,
+        // which is what makes the bash tool return its backgrounded result, and
+        // it is why Ctrl+B works without aborting anything. Aborting on top of
+        // that tears the turn down: the user sees "Error: This operation was
+        // aborted" and the follow-up below never leaves the queue.
 
         // Resubmit the user's message as a follow-up — Pi delivers it
         // after the current turn settles. No polling needed.
         try {
             pi.sendUserMessage(text, { deliverAs: "followUp" });
         } catch {
-            // Session ended between abort and resubmit — nothing to deliver to.
+            // Session ended before the resubmit — nothing to deliver to.
         }
 
         return { action: "handled" };
