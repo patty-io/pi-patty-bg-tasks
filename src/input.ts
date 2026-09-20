@@ -30,7 +30,7 @@ export function registerInputHandlers(pi: ExtensionAPI, reg: BackgroundRegistry)
         try {
             pi.sendUserMessage(text, { deliverAs: "followUp" });
         } catch {
-            // Session ended between abort and resubmit — nothing to deliver to.
+            // Session ended before the resubmit — nothing to deliver to.
         }
 
         return { action: "handled" };
