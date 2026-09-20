@@ -14,6 +14,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
 import { BackgroundRegistry } from "./state.ts";
+import { GROUP_ENV, GROUP_FLAG, groupingEnabled } from "./grouping.ts";
 import { detectNonInteractive, terminateJobSilently } from "./lifecycle.ts";
 import { stopSidebarTicker } from "./registry.ts";
 import { EVENT } from "./types.ts";
@@ -35,13 +36,23 @@ export default function (pi: ExtensionAPI): void {
     // bash renderCall/renderResult (createBashTool returns a wrapped AgentTool
     // that drops them).
     const originalBash = createBashToolDefinition(process.cwd());
-    registerBashTool(pi, reg, originalBash);
+    registerBashTool(pi, reg, originalBash, groupingEnabled());
     registerBashBgTool(pi, reg);
     registerJobsTool(pi, reg);
     registerAgentBgTool(pi, reg);
     registerMonitorTool(pi, reg);
 
     // ── Shortcuts / commands ──────────────────────────────────────
+    // Grouped shell rows are resolved at load time (pi applies flag values after
+    // extension factories run, but the bash tool's renderShell is fixed when it
+    // registers), so the flag is registered here for help text and validation
+    // while ../grouping.ts reads it from argv/env.
+    pi.registerFlag(GROUP_FLAG, {
+        description: `Group a turn's shell calls behind one collapsible card (same as ${GROUP_ENV}=1)`,
+        type: "boolean",
+        default: false,
+    });
+
     registerShortcuts(pi, reg);
     registerCommands(pi, reg);
     registerInputHandlers(pi, reg);

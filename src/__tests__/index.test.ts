@@ -56,6 +56,7 @@ function makePi() {
         },
         registerShortcut() {},
         registerCommand() {},
+        registerFlag() {},
         registerMessageRenderer() {},
         on(event: string, handler: SessionHandler) {
             handlers.set(event, handler);

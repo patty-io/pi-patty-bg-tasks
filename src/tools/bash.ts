@@ -47,19 +47,23 @@ import {
     startBackgroundJob,
 } from "../lifecycle.ts";
 import { textBlock } from "../format.ts";
+import { createGroupedShellRenderers } from "../grouping.ts";
 import { bashParamSchema } from "./bash-params.ts";
 
 /** UI context + cwd is all this tool needs from the host context. */
 type BashCtx = UiContext & { cwd: string };
 
-/** Register the overridden `bash` tool. */
+/** Register the overridden `bash` tool. `grouping` comes from the entry point
+ *  rather than being read here, so this module stays free of ambient state. */
 export function registerBashTool(
     pi: ExtensionAPI,
     reg: BackgroundRegistry,
-    originalBash: ReturnType<typeof createBashToolDefinition>
+    originalBash: ReturnType<typeof createBashToolDefinition>,
+    grouping = false
 ): void {
     pi.registerTool({
         ...originalBash,
+        ...(grouping ? createGroupedShellRenderers(pi) : {}),
         name: "bash",
         description:
             "Run a bash command. Long-running commands auto-background after timeout. " +

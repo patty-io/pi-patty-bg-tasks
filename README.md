@@ -76,6 +76,27 @@ The built-in bash tool, with a survival instinct. Commands run normally — but 
 | `timeout` | Custom timeout in seconds (default: 120) |
 | `run_in_background` | Start the command in the background immediately, skipping the foreground run and the auto-background timer |
 
+### Grouped command rows (optional)
+
+By default every shell call keeps its own row, like the built-in tool. Pass `--group-commands` (or set `PI_BG_GROUP_COMMANDS=1`) and a turn's shell calls collapse into a single card instead:
+
+```
+⏺ 5 commands · uv run pytest -q  (ctrl+o to expand)
+```
+
+`ctrl+o` expands it in place: every command the turn ran, its status, how long it took, and the last line of its output. Collapsed, the turn costs one row instead of one row per command.
+
+```
+⏺ 5 commands · uv run pytest -q
+  ✓ $ uv run ruff check (0s)
+      All checks passed!
+  ✓ $ uv run pytest -q (0s)
+      191 passed in 6.19s
+  ▶ $ uv run python -m chronicle ingest (1m12s)
+```
+
+A command that auto-backgrounded shows as `▶` and keeps running under `jobs`; a failed one shows `✗` with its output line. Off by default because it hides rows you may want to watch scroll by.
+
 ### bash_bg
 
 When you already know it's a long one. Starts a command in the background immediately — no foreground race, no timeout to wait out.
