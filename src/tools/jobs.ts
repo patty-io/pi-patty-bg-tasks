@@ -260,6 +260,21 @@ async function attachAction(
         }
     }
 
+    // [local patch] Guard the fall-through. Reaching here with status === "running"
+    // is normal (wait:false, or a job that outlived the awaited donePromise), but
+    // the message below asserted completion unconditionally — telling both the
+    // agent and the human that a still-running job had finished.
+    if (job.status === "running") {
+        return {
+            content: [
+                textBlock(
+                    `${label} is still running. Use jobs output to check on it, or jobs action='attach' with wait=true to wait for it to finish.`
+                ),
+            ],
+            details: undefined,
+        };
+    }
+
     const message = `${label} finished. Status: ${job.status}`;
     ctx.ui.notify(message, job.status === "failed" ? "error" : "info");
     // The attach result IS the outcome notification — mark it notified so the
