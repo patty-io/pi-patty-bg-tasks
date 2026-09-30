@@ -182,7 +182,12 @@ function deleteLogFile(logPath: string): number {
         const { size } = statSync(logPath);
         unlinkSync(logPath);
         return size;
-    } catch {
+    } catch (err) {
+        // A missing log is normal (the job may never have written one). Anything else, a permission
+        // or IO failure, silently reports zero freed bytes, so say so.
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+            console.error("[bg-tasks] could not delete job log, reporting 0 bytes:", logPath, err);
+        }
         return 0;
     }
 }

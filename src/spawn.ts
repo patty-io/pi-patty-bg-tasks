@@ -121,10 +121,15 @@ function ensureLogDir(logPath: string): void {
     try {
         process.kill(-pid, signal);
     } catch {
+        // No process group to signal is the designed fallback path, so this catch stays quiet.
         try {
             process.kill(pid, signal);
-        } catch {
-            /* already dead */
+        } catch (err) {
+            // A dead pid is normal. Anything else means the job is still alive while callers treat it
+            // as killed, which is worth hearing about.
+            if ((err as NodeJS.ErrnoException).code !== "ESRCH") {
+                console.error("[bg-tasks] could not kill process, it may still be running:", pid, signal, err);
+            }
         }
     }
 }

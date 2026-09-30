@@ -30,7 +30,10 @@ function resolvePiBinary(): string {
     if (cachedPiBinary !== undefined) return cachedPiBinary;
     try {
         cachedPiBinary = execSync("which pi", { encoding: "utf-8", timeout: 3000 }).trim();
-    } catch {
+    } catch (err) {
+        // Falling back to a bare name means the child resolves pi from PATH, which may be a different
+        // build than the one running. Say so rather than spawning something else silently.
+        console.error("[bg-tasks] could not resolve the pi binary, falling back to a PATH lookup:", err);
         cachedPiBinary = "pi";
     }
     return cachedPiBinary;

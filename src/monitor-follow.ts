@@ -61,7 +61,12 @@ export function followLines(
         let fd: number;
         try {
             fd = openSync(logPath, "r");
-        } catch {
+        } catch (err) {
+            // Deleted between the stat above and this open is a normal race. A permission or IO
+            // failure is not: returning [] ends the stream for good with no signal.
+            if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+                console.error("[bg-tasks] monitor could not open its log file, stream ends:", logPath, err);
+            }
             return [];
         }
         try {
