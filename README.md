@@ -110,6 +110,12 @@ Clone yourself a coworker. Spawns a detached `pi -p` process with a continuity p
 | `prompt` | Task description for the background agent |
 | `cwd` | Working directory (default: current) |
 
+**Which pi it launches.** `agent_bg` spawns the first of:
+
+1. `PI_PATTY_PI_BINARY`, when set and not blank. Give a bare executable name or path (no arguments, no shell). Pi-Bolt users: `PI_PATTY_PI_BINARY=pi-bolt`.
+2. The running executable, when it is a standalone `pi` / `pi.exe` binary.
+3. `pi` on your `PATH` (`which pi`), else plain `pi`.
+
 ### monitor
 
 Stream events instead of waiting once. Where `bash_bg`/`run_in_background` give a **single** completion ping, `monitor` turns a process into a **live event stream** — each stdout line (or WebSocket frame) becomes one notification delivered straight into the agent's turn while it keeps working. This is the streaming half of Claude Code's split: one-shot "wait until done" stays on `run_in_background`; per-event "tell me each time X happens" is `monitor`.

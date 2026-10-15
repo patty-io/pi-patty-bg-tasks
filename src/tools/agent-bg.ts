@@ -10,6 +10,7 @@
 import { execSync } from "node:child_process";
 import { unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { basename } from "node:path";
 import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import type { BackgroundRegistry } from "../state.ts";
@@ -24,16 +25,44 @@ import { spawnWithFileOutput, type SpawnResult } from "../spawn.ts";
 import { streamLog } from "../output.ts";
 import { textBlock } from "../format.ts";
 
-/** Resolve the full path to the pi binary, memoised for the session. */
-let cachedPiBinary: string | undefined;
-function resolvePiBinary(): string {
-    if (cachedPiBinary !== undefined) return cachedPiBinary;
-    try {
-        cachedPiBinary = execSync("which pi", { encoding: "utf-8", timeout: 3000 }).trim();
-    } catch {
-        cachedPiBinary = "pi";
+/** Injectable inputs for {@link resolvePiBinary}; tests pass fakes. */
+export interface PiBinaryDeps {
+    env: Record<string, string | undefined>;
+    execPath: string;
+    /** `which pi` — the resolved path; "" or a throw means not found. */
+    which: () => string;
+}
+
+/** `which pi`, memoised for the session — the only cached step. */
+let cachedWhichPi: string | undefined;
+function whichPi(): string {
+    if (cachedWhichPi === undefined) {
+        try {
+            cachedWhichPi = execSync("which pi", { encoding: "utf-8", timeout: 3000 }).trim();
+        } catch {
+            cachedWhichPi = "";
+        }
     }
-    return cachedPiBinary;
+    return cachedWhichPi;
+}
+
+/**
+ * Resolve the pi binary agent_bg launches:
+ * 1. env PI_PATTY_PI_BINARY (trimmed, non-empty) — e.g. `pi-bolt`;
+ * 2. process.execPath when it is a standalone pi executable (pi / pi.exe);
+ * 3. `which pi`, falling back to "pi".
+ */
+export function resolvePiBinary(
+    deps: PiBinaryDeps = { env: process.env, execPath: process.execPath, which: whichPi }
+): string {
+    const override = deps.env.PI_PATTY_PI_BINARY?.trim();
+    if (override) return override;
+    if (/^pi(?:\.exe)?$/i.test(basename(deps.execPath))) return deps.execPath;
+    try {
+        return deps.which() || "pi";
+    } catch {
+        return "pi";
+    }
 }
 
 interface ContentMessage {
@@ -148,7 +177,7 @@ export function registerAgentBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): 
             }
 
             const job = createRunningJob({
-                id, name: promptLabel, command: `pi -p (background agent)`, pid: spawned.pid,
+                id, name: promptLabel, command: `${basename(piBin)} -p (background agent)`, pid: spawned.pid,
                 logPath, toolCallId, kind: "agent",
             });
             add(reg, job);
