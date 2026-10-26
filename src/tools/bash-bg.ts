@@ -15,7 +15,8 @@ import { isTerminalStatus, type UiContext } from "../types.ts";
 import { killProcessTree, spawnWithFileOutput } from "../spawn.ts";
 import { add, createRunningJob, newJobId, logPathFor } from "../registry.ts";
 import {
-    assertJobSlot, detectBlockedSleep, isAutoBackgroundAllowed, isBlankCommand,
+    assertJobSlot, detectBlockedSleep, detectJobLogPoll, isAutoBackgroundAllowed, isBlankCommand,
+    JOB_LOG_POLL_GUIDANCE,
     requireExistingCwd, SLEEP_WAIT_GUIDANCE, startBackgroundJob,
 } from "../lifecycle.ts";
 import { textBlock } from "../format.ts";
@@ -52,6 +53,12 @@ export function registerBashBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): v
             const sleepMatch = detectBlockedSleep(p.command);
             if (sleepMatch) {
                 throw new Error(`Blocked: ${sleepMatch}. ${SLEEP_WAIT_GUIDANCE}`);
+            }
+            // A backgrounded log-poll loop never converges when its target dies,
+            // and nothing but a human can then end it (issue #32).
+            const pollMatch = detectJobLogPoll(p.command);
+            if (pollMatch) {
+                throw new Error(`Blocked: ${pollMatch}. ${JOB_LOG_POLL_GUIDANCE}`);
             }
             requireExistingCwd(ctx2.cwd);
             assertJobSlot(reg);

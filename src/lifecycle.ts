@@ -332,15 +332,62 @@ export function isAutoBackgroundAllowed(command: string): boolean {
  * Actionable guidance shown when a naive `sleep N` wait is blocked. A fixed
  * sleep both wastes time and leaves a lingering background job; every bullet
  * points at a tool that ends as soon as the real work does.
+ *
+ * The options are deliberately ORDERED. Listing attach and a poll loop as equal
+ * alternatives invited the failure mode in issue #32: a model blocked on
+ * `sleep N` copied the loop example verbatim, the loop could outlive the thing
+ * it polled and therefore never exit, and the turn hung until a human aborted
+ * it. Ending the turn costs nothing — the completion notification wakes the
+ * agent — so it goes first.
  */
 export const SLEEP_WAIT_GUIDANCE =
     "A fixed `sleep N` to wait wastes time and leaves a job lingering for the " +
-    "full duration. Instead:\n" +
-    "• Waiting on a background job you started? Use jobs action='attach' — it " +
-    "returns as soon as that job finishes.\n" +
-    "• Waiting for a condition? Use the monitor tool, or a poll loop that EXITS " +
-    "when ready (e.g. `until grep -q READY log; do sleep 0.5; done`).\n" +
+    "full duration. Instead, in order of preference:\n" +
+    "• Nothing to do until the job ends? End the turn — its completion " +
+    "notification wakes you with the result.\n" +
+    "• Need the result within this turn? jobs action='attach' returns as soon " +
+    "as the job finishes (or after its wait cap — attach again to keep waiting).\n" +
+    "• Waiting for a condition rather than for exit? Use the monitor tool, or a " +
+    "bounded poll loop whose exit also matches failure " +
+    "(`until grep -Eq 'READY|error|Traceback' log; do sleep 0.5; done`).\n" +
     "• Just pacing/rate-limiting? Keep it under 2 seconds.";
+
+/**
+ * Guidance shown when a foreground loop polls one of this extension's own job
+ * logs. Such a loop re-reads a file that never reports the job's DEATH, so a
+ * crashed or never-started job looks identical to "not ready yet" and the loop
+ * spins until the turn is abandoned (issue #32).
+ */
+export const JOB_LOG_POLL_GUIDANCE =
+    "A background job's log cannot tell a loop that the job died: if the job " +
+    "never starts or exits early, the loop never converges and occupies the " +
+    "whole turn. Instead: end the turn and let the job's completion " +
+    "notification wake you, or use jobs action='attach' when the result is " +
+    "needed within this turn.";
+
+/** Job-log paths this extension owns (`registry.LOG_DIR`). */
+const JOB_LOG_REF = /\/tmp\/pi-bg\/|\$\{?PI_BG/;
+
+/**
+ * Detect a foreground shell loop that polls this extension's own job log —
+ * `until grep -q DONE /tmp/pi-bg/<id>.log; do sleep 0.5; done` — the anti-pattern
+ * behind issue #32.
+ *
+ * Deliberately narrow: it needs a `while`/`until` … `do` … `done` body, a
+ * `sleep`, AND a reference to this extension's log dir. One-shot reads (`cat`,
+ * `tail -n`) and loops over some other file stay allowed, because only the
+ * re-read loop is the trap.
+ *
+ * Returns a human-readable clause for the error message, or null.
+ */
+export function detectJobLogPoll(command: string): string | null {
+    const trimmed = command.trim();
+    const isLoop = /\b(until|while)\b[\s\S]*?\bdo\b[\s\S]*?\bdone\b/.test(trimmed);
+    if (!isLoop) return null;
+    if (!/\bsleep\b/.test(trimmed)) return null;
+    if (!JOB_LOG_REF.test(trimmed)) return null;
+    return "a foreground loop polling a background job's log";
+}
 
 /** A bare `sleep N[unit]` that counts as a wait (>= 2s). Float durations
  *  (`sleep 0.5`) and sub-2s integer sleeps are deliberate pacing — allowed. */

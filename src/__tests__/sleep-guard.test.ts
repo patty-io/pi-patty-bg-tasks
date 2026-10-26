@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { detectBlockedSleep } from "../lifecycle.ts";
+import { detectBlockedSleep, detectJobLogPoll, SLEEP_WAIT_GUIDANCE } from "../lifecycle.ts";
 import { BackgroundRegistry } from "../state.ts";
 import { registerBashBgTool } from "../tools/bash-bg.ts";
 
@@ -82,5 +82,75 @@ void describe("bash_bg — rejects a backgrounded sleep wait", () => {
         const { tool, ctx } = bashBg();
         const res = await tool.execute("t2", { command: "echo hi" }, undefined, undefined, ctx);
         assert.ok(res, "non-sleep command runs");
+    });
+});
+
+void describe("detectJobLogPoll — foreground loop over this extension's own log (#32)", () => {
+    void it("blocks the loop that hung a turn", () => {
+        assert.equal(
+            detectJobLogPoll("until grep -q DONE /tmp/pi-bg/job-123.log; do sleep 0.5; done"),
+            "a foreground loop polling a background job's log"
+        );
+        assert.equal(
+            detectJobLogPoll("while :; do sleep 5; tail -1 /tmp/pi-bg/job-9.log; done"),
+            "a foreground loop polling a background job's log"
+        );
+        // The incident's shape: a loop whose only exit is the job's own success
+        // signature, so a dead target looks exactly like "not ready yet".
+        assert.ok(
+            detectJobLogPoll(
+                "until grep -q BGDONE \"$PI_BG_LOG\"; do sleep 0.5; done"
+            )
+        );
+    });
+
+    void it("allows one-shot reads and loops over other files", () => {
+        assert.equal(detectJobLogPoll("cat /tmp/pi-bg/job-1.log"), null);
+        assert.equal(detectJobLogPoll("tail -n 40 /tmp/pi-bg/job-1.log"), null);
+        assert.equal(detectJobLogPoll("until grep -q READY build.log; do sleep 1; done"), null);
+        assert.equal(detectJobLogPoll("echo /tmp/pi-bg/"), null);
+        // A loop that never sleeps cannot burn a turn on a dead target.
+        assert.equal(detectJobLogPoll("until test -f /tmp/pi-bg/x.log; do :; done"), null);
+    });
+
+    void it("is enforced by bash_bg as well", async () => {
+        let tool:
+            | { execute: (id: string, p: unknown, s: unknown, u: unknown, c: unknown) => Promise<unknown> }
+            | undefined;
+        const pi = { registerTool: (def: typeof tool) => { tool = def; }, sendMessage() {} };
+        registerBashBgTool(pi as never, new BackgroundRegistry());
+        const ctx = {
+            cwd: process.cwd(),
+            ui: { notify() {}, setWidget() {}, setStatus() {}, theme: { fg: (_c: string, t: string) => t } },
+        };
+        await assert.rejects(
+            () =>
+                tool!.execute(
+                    "t1",
+                    { command: "until grep -q DONE /tmp/pi-bg/job-1.log; do sleep 0.5; done" },
+                    undefined,
+                    undefined,
+                    ctx
+                ),
+            /Blocked: a foreground loop polling a background job's log\..*completion notification/s
+        );
+    });
+});
+
+void describe("SLEEP_WAIT_GUIDANCE — ordered, no unbounded recipe (#32)", () => {
+    void it("leads with ending the turn and the completion notification", () => {
+        const firstBullet = SLEEP_WAIT_GUIDANCE.split("\n")[1] ?? "";
+        assert.match(firstBullet, /completion notification/);
+        assert.doesNotMatch(firstBullet, /attach/);
+    });
+
+    void it("no longer ships the never-converging until example", () => {
+        assert.doesNotMatch(SLEEP_WAIT_GUIDANCE, /until grep -q READY log; do sleep 0\.5; done/);
+        // The replacement example must match a failure signature, not only success.
+        assert.match(SLEEP_WAIT_GUIDANCE, /READY\|error\|Traceback/);
+    });
+
+    void it("tells the agent attach is bounded and re-attachable", () => {
+        assert.match(SLEEP_WAIT_GUIDANCE, /wait cap — attach again/);
     });
 });
