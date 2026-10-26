@@ -55,7 +55,7 @@ export function registerJobsTool(
             "list: show all jobs",
             "output: show the log tail for one job",
             "kill: terminate a job",
-            "attach: follow a job's live output and wait for it to finish (use output for a non-blocking peek)",
+            "attach: follow a job's live output and wait for it to finish; returns after a bounded wait if the job is still running (use output for a non-blocking peek)",
             "search: regex-search all job output",
             "cleanup: purge terminal jobs",
             "stats: show aggregate metrics",
@@ -194,6 +194,33 @@ async function killAction(
 
 // ─── attach: follow live output until completion ─────────────────────────
 
+/** Default cap on one `attach` wait, in ms. */
+export const ATTACH_WAIT_CAP_MS = 90_000;
+
+/** Bounds for the PI_BG_ATTACH_WAIT_MS override. */
+const MIN_ATTACH_WAIT_CAP_MS = 50;
+const MAX_ATTACH_WAIT_CAP_MS = 600_000;
+
+/**
+ * How long one `attach` call may block before handing the turn back.
+ *
+ * A wait that can never end must not occupy the turn indefinitely: a job whose
+ * only exit condition is a state that will never arrive (a crashed child, a
+ * poll loop whose target is gone) would otherwise hang the agent until a human
+ * aborts it — issue #32 lost 19 minutes that way. Because the `notified` latch
+ * is released when the cap fires, the job's own `<task-notification>` still
+ * wakes the agent when it eventually finishes.
+ *
+ * Override with PI_BG_ATTACH_WAIT_MS (tests, or a deliberately long wait).
+ */
+export function attachWaitCapMs(): number {
+    const raw = Number(process.env.PI_BG_ATTACH_WAIT_MS);
+    if (!Number.isFinite(raw) || raw < MIN_ATTACH_WAIT_CAP_MS) {
+        return ATTACH_WAIT_CAP_MS;
+    }
+    return Math.min(raw, MAX_ATTACH_WAIT_CAP_MS);
+}
+
 async function attachAction(
     reg: BackgroundRegistry,
     jobId: string,
@@ -210,8 +237,8 @@ async function attachAction(
         ensureCompletionPromise(job);
         // We're actively following this job — suppress its separate completion
         // notification so the attach result is the single notification. Undone
-        // on the abort path below, so a job we detach from still reports when
-        // it ends.
+        // whenever we hand control back without an outcome (abort or cap), so a
+        // job we stop following still reports when it ends.
         job.notified = true;
 
         // Bail early if the OS process already died.
@@ -219,9 +246,14 @@ async function attachAction(
             markTerminal(job, "failed");
         }
 
+        const donePromise = job.donePromise as Promise<void>;
+
+        const capMs = attachWaitCapMs();
         onUpdate?.({
             content: [
-                textBlock(`Following ${label} live output — waiting for it to finish…`),
+                textBlock(
+                    `Following ${label} live output — waiting for it to finish (up to ${Math.round(capMs / 1000)}s)…`
+                ),
             ],
             details: undefined,
         });
@@ -230,34 +262,71 @@ async function attachAction(
         // instead of sitting silent.
         const poller = streamLog(job.logPath, onUpdate);
         let onAbort: (() => void) | undefined;
+        let timer: NodeJS.Timeout | undefined;
         try {
+            const racers: Promise<unknown>[] = [donePromise];
             if (signal && !signal.aborted) {
                 const abortPromise = new Promise<void>((resolve) => {
                     onAbort = resolve;
                     signal.addEventListener("abort", onAbort, { once: true });
                 });
-                await Promise.race([job.donePromise, abortPromise]);
-            } else {
-                await job.donePromise;
+                racers.push(abortPromise);
             }
+            // The cap: hand the turn back instead of blocking it forever.
+            racers.push(
+                new Promise<"cap">((resolve) => {
+                    timer = setTimeout(() => resolve("cap"), capMs);
+                    timer.unref();
+                })
+            );
+            await Promise.race(racers);
         } finally {
+            if (timer) clearTimeout(timer);
             poller.stop();
             if (signal && onAbort) signal.removeEventListener("abort", onAbort);
         }
 
         if (job.status === "running") {
-            // Aborted before completion — we never reported the finish, so let
-            // the job's own completion notification fire later.
+            // We are handing control back WITHOUT an outcome. Release the latch
+            // so the job's own <task-notification> still fires later.
             job.notified = false;
+            if (signal?.aborted) {
+                return {
+                    content: [
+                        textBlock(
+                            `Stopped following ${label} — it's still running in the background. Use jobs output to check on it.`
+                        ),
+                    ],
+                    details: undefined,
+                };
+            }
+            // Cap elapsed: explicitly NOT a finish (issue #25), with the two
+            // ways forward spelled out.
+            const seconds = Math.max(1, Math.round(capMs / 1000));
             return {
                 content: [
                     textBlock(
-                        `Stopped following ${label} — it's still running in the background. Use jobs output to check on it.`
+                        `${label} is still running after ${seconds}s — no result yet. Call jobs action='attach' again to keep waiting, or end the turn and its completion notification will wake you.`
                     ),
                 ],
                 details: undefined,
             };
         }
+    }
+
+    if (job.status === "running") {
+        // `wait: false` on a live job. Reporting this as "finished" is issue
+        // #25: the agent and the human were both told the opposite of the truth.
+        const message = `${label} is still running.`;
+        ctx.ui.notify(message, "info");
+        return {
+            content: [
+                textBlock(
+                    `${message} Attach again to keep waiting, or use jobs output to read its log so far.`
+                ),
+            ],
+            details: undefined,
+        };
     }
 
     const message = `${label} finished. Status: ${job.status}`;
