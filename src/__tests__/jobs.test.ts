@@ -13,6 +13,7 @@ import { BackgroundRegistry } from "../state.ts";
 import { registerJobsTool } from "../tools/jobs.ts";
 import { add, createRunningJob } from "../registry.ts";
 import { markNotified } from "../notify.ts";
+import { markTerminal } from "../lifecycle.ts";
 import type { Job, UiContext } from "../types.ts";
 
 const dir = join(tmpdir(), `pi-bg-jobs-${process.pid}`);
@@ -139,6 +140,73 @@ void describe("jobs list — lazy sweep", () => {
         assert.ok(text.includes("run-me"), "running job listed");
         assert.match(text, /done-read - ✓ completed\n?$/, "swept job shows as a recent terminal");
         assert.ok(running.status === "running");
+    });
+});
+
+void describe("jobs attach — bounded wait (#32) and honest status (#25)", () => {
+    async function withCap<T>(ms: number, fn: () => Promise<T>): Promise<T> {
+        const saved = process.env.PI_BG_ATTACH_WAIT_MS;
+        process.env.PI_BG_ATTACH_WAIT_MS = String(ms);
+        try {
+            return await fn();
+        } finally {
+            if (saved === undefined) delete process.env.PI_BG_ATTACH_WAIT_MS;
+            else process.env.PI_BG_ATTACH_WAIT_MS = saved;
+        }
+    }
+
+    void it("hands the turn back after the wait cap instead of blocking it", async () => {
+        const { tool, reg, ctx } = harness();
+        const job = mkJob(reg, { id: `job-${process.pid}-attach-cap` });
+        await withCap(80, async () => {
+            const started = Date.now();
+            const res = await tool.execute(
+                "t-attach",
+                { action: "attach", jobId: job.id },
+                undefined,
+                undefined,
+                ctx
+            );
+            const elapsed = Date.now() - started;
+            const text = res.content[0]!.text;
+            assert.ok(elapsed < 3000, `attach returned in ${elapsed}ms instead of blocking`);
+            assert.match(text, /still running after \d+s/);
+            assert.match(text, /attach' again/);
+            assert.doesNotMatch(text, /finished/);
+        });
+        // The latch must be released, or the job's own completion notification
+        // would be suppressed and the agent would never learn it ended.
+        assert.equal(job.notified, false);
+    });
+
+    void it("reports a live job as still running for wait:false (#25)", async () => {
+        const { tool, reg, ctx } = harness();
+        const job = mkJob(reg, { id: `job-${process.pid}-wait-false` });
+        const res = await tool.execute(
+            "t-wait-false",
+            { action: "attach", jobId: job.id, wait: false },
+            undefined,
+            undefined,
+            ctx
+        );
+        const text = res.content[0]!.text;
+        assert.match(text, /is still running/);
+        assert.doesNotMatch(text, /finished/);
+    });
+
+    void it("still reports a terminal job as finished", async () => {
+        const { tool, reg, ctx } = harness();
+        const job = mkJob(reg, { id: `job-${process.pid}-attach-done` });
+        markTerminal(job, "completed", 0);
+        const res = await tool.execute(
+            "t-done",
+            { action: "attach", jobId: job.id },
+            undefined,
+            undefined,
+            ctx
+        );
+        assert.match(res.content[0]!.text, /finished\. Status: completed/);
+        assert.equal(job.notified, true);
     });
 });
 
