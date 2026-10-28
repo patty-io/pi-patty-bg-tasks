@@ -143,7 +143,8 @@ monitor({ ws: { url: "wss://events.example.com/stream" }, description: "배포 �
 
 | 단축키 | 동작 |
 |-------|------|
-| **Ctrl+Shift+B** | 실행 중인 모든 포그라운드 명령을 백그라운드로 — 에이전트는 계속 작업 (Claude Code의 Ctrl+B에 해당; pi가 Ctrl+B를 에디터 커서 이동에 예약해 둠). extended-keys가 없는 tmux에서는 `/bg`를 사용하세요. |
+| **Ctrl+B** | 입력창이 비어 있으면 실행 중인 모든 포그라운드 명령을 백그라운드로 전환하고, 입력이 있으면 pi 기본 동작대로 커서를 왼쪽으로 이동 |
+| **Ctrl+Shift+B** | 입력창 내용과 관계없이 실행 중인 모든 포그라운드 명령을 백그라운드로 — 에이전트는 계속 작업. extended-keys가 없는 tmux에서는 `/bg`를 사용하세요. |
 | **Ctrl+Shift+J** | 백그라운드 작업 관리자 열기 |
 | **Shift+Down** | 백그라운드 작업 관리자 열기 |
 | **Ctrl+Shift+X** | 가장 최근에 실행 중인 잡 종료 |

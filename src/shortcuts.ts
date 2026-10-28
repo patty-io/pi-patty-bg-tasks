@@ -1,34 +1,72 @@
 /**
  * Keyboard shortcut registration.
  *
+ *   - Ctrl+B: background foreground commands when the editor is empty;
+ *     otherwise retain pi's built-in cursor-left behavior
  *   - Ctrl+Shift+B: move the foreground bash to background
  *   - Ctrl+Shift+J / Shift+Down: open the background task manager
  *   - Ctrl+Shift+X: kill the most recent running job
  *
- * Note: Ctrl+B is reserved by pi for `tui.editor.cursorLeft` (built-in
- * keybinding), so the background shortcut lives on Ctrl+Shift+B. Registering
- * Ctrl+B anyway triggers pi's startup "extension shortcut conflict" diagnostic
- * and breaks cursor-left in the editor.
+ * Ctrl+B is handled by a CustomEditor instead of registerShortcut(). Extension
+ * shortcuts consume matching input before the editor sees it, so they cannot
+ * conditionally fall back to `tui.editor.cursorLeft` without moving the cursor
+ * logic into the extension.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { BackgroundRegistry } from "./state.ts";
 import {
-    takeControl,
-    terminateJobSilently,
-    type ControlContext,
-} from "./lifecycle.ts";
+    CustomEditor,
+    type ExtensionAPI,
+    type ExtensionContext,
+    type KeybindingsManager,
+} from "@earendil-works/pi-coding-agent";
+import { matchesKey, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
+import type { BackgroundRegistry } from "./state.ts";
+import { takeControl, terminateJobSilently } from "./lifecycle.ts";
 import { renderSidebar } from "./registry.ts";
 import { jobLabel } from "./format.ts";
 import { openBgListPanel } from "./ui.ts";
+
+/** Editor that shares Ctrl+B with pi's built-in cursor-left binding. */
+export class BackgroundTaskEditor extends CustomEditor {
+    private readonly onEmptyCtrlB: () => void;
+
+    constructor(
+        tui: TUI,
+        theme: EditorTheme,
+        keybindings: KeybindingsManager,
+        onEmptyCtrlB: () => void
+    ) {
+        super(tui, theme, keybindings);
+        this.onEmptyCtrlB = onEmptyCtrlB;
+    }
+
+    override handleInput(data: string): void {
+        if (matchesKey(data, "ctrl+b") && this.getText().length === 0) {
+            this.onEmptyCtrlB();
+            return;
+        }
+        super.handleInput(data);
+    }
+}
 
 /** Register all shortcuts. */
 export function registerShortcuts(
     pi: ExtensionAPI,
     reg: BackgroundRegistry
 ): void {
-    // Background shortcut — Ctrl+Shift+B. Ctrl+B itself is pi's built-in
-    // cursor-left binding and must not be claimed (see header note).
+    // Intercept Ctrl+B before CustomEditor's extension-shortcut dispatch only
+    // when there is no input to edit. All other input follows pi's normal path.
+    pi.on("session_start", (_event, ctx) => {
+        if (ctx.mode !== "tui") return;
+        ctx.ui.setEditorComponent(
+            (tui, theme, keybindings) =>
+                new BackgroundTaskEditor(tui, theme, keybindings, () =>
+                    handleCtrlB(reg, ctx)
+                )
+        );
+    });
+
+    // Ctrl+Shift+B remains available regardless of editor contents.
     pi.registerShortcut("ctrl+shift+b", {
         description: "Background the current foreground process",
         handler: async (ctx) => handleCtrlB(reg, ctx),
@@ -51,17 +89,14 @@ export function registerShortcuts(
 }
 
 /**
- * Ctrl+Shift+B / `/bg` handler — background ALL running foreground commands
- * (Claude Code's `backgroundAll`). takeControl deliberately never aborts the
+ * Ctrl+B / Ctrl+Shift+B / `/bg` handler — background ALL running foreground
+ * commands (Claude Code's `backgroundAll`). takeControl deliberately never aborts the
  * turn: the bash tool returns its "backgrounded" result, the turn ends, and a
  * queued user message drains at the natural turn boundary. See
  * lifecycle.takeControl.
  */
-async function handleCtrlB(
-    reg: BackgroundRegistry,
-    ctx: Parameters<NonNullable<Parameters<ExtensionAPI["registerShortcut"]>[1]["handler"]>>[0]
-): Promise<void> {
-    takeControl(reg, ctx as ControlContext);
+function handleCtrlB(reg: BackgroundRegistry, ctx: ExtensionContext): void {
+    takeControl(reg, ctx);
 }
 
 /** Ctrl+Shift+X: kill the most recent running job. */

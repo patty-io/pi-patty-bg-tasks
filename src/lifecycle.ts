@@ -273,8 +273,9 @@ export function backgroundActiveForeground(
 export type ControlOutcome = "backgrounded" | "queued" | "nothing";
 
 /**
- * Claude Code's Ctrl+B, faithfully (on Ctrl+Shift+B here, since pi owns
- * Ctrl+B): background ALL running foreground commands (CC's `backgroundAll`).
+ * Claude Code's Ctrl+B, available here on Ctrl+B with an empty editor and on
+ * Ctrl+Shift+B regardless of editor contents: background ALL running foreground
+ * commands (CC's `backgroundAll`).
  *
  * It deliberately does NOT call ctx.abort(): in pi, aborting restores any queued
  * message to the editor (unsent), renders a scary "Operation aborted", AND kills

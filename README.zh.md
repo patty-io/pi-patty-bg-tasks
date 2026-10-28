@@ -143,7 +143,8 @@ monitor({ ws: { url: "wss://events.example.com/stream" }, description: "部署�
 
 | 快捷键 | 操作 |
 |-------|------|
-| **Ctrl+Shift+B** | 把所有正在运行的前台命令转后台 —— 代理继续干活(对应 Claude Code 的 Ctrl+B;pi 自己把 Ctrl+B 保留为编辑器光标左移)。在没有 extended-keys 的 tmux 里请改用 `/bg`。 |
+| **Ctrl+B** | 输入框为空时，把所有正在运行的前台命令转后台；输入框有内容时，保留 pi 内置的光标左移行为 |
+| **Ctrl+Shift+B** | 无论输入框是否有内容，都将所有正在运行的前台命令转后台 —— 代理继续干活。在没有 extended-keys 的 tmux 里请改用 `/bg`。 |
 | **Ctrl+Shift+J** | 打开后台作业管理器 |
 | **Shift+Down** | 打开后台作业管理器 |
 | **Ctrl+Shift+X** | 终止最近一个运行中的作业 |

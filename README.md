@@ -143,7 +143,8 @@ Keep your hands on the keyboard.
 
 | Shortcut | Action |
 |----------|--------|
-| **Ctrl+Shift+B** | Background all running foreground commands — agent keeps working (Claude Code's Ctrl+B; pi reserves Ctrl+B itself for editor cursor-left). Inside tmux without extended-keys, use `/bg` instead. |
+| **Ctrl+B** | When the input editor is empty, background all running foreground commands; otherwise, move the cursor left using pi's built-in behavior |
+| **Ctrl+Shift+B** | Background all running foreground commands regardless of editor contents — agent keeps working. Inside tmux without extended-keys, use `/bg` instead. |
 | **Ctrl+Shift+J** | Open the background task manager |
 | **Shift+Down** | Open the background task manager |
 | **Ctrl+Shift+X** | Kill the most recent running job |
